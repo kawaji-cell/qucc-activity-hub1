@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Map, { Source, Layer, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { supabase } from '@/lib/supabase';
@@ -43,6 +43,7 @@ export default function Home() {
   const [ownClientId, setOwnClientId] = useState('');
   const [ownClientSecret, setOwnClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
+  const callbackHandled = useRef(false);
 
   const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const STRAVA_CLIENT_ID = process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
@@ -88,7 +89,10 @@ export default function Home() {
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
     const stateParam = urlParams.get('state');
-    if (code) {
+    if (code && !callbackHandled.current) {
+      callbackHandled.current = true;
+      // URL からコードを即座に除去して2回目の処理を防ぐ
+      window.history.replaceState({}, '', '/');
       setLoading(true);
       const savedEntryYear = parseInt(localStorage.getItem('qucc_entry_year') || String(entryYear));
       const savedYears = parseInt(localStorage.getItem('qucc_years') || String(years));
@@ -105,7 +109,6 @@ export default function Home() {
           }
           localStorage.removeItem('qucc_entry_year');
           localStorage.removeItem('qucc_years');
-          window.history.replaceState({}, '', '/');
           loadData();
           setLoading(false);
         });
