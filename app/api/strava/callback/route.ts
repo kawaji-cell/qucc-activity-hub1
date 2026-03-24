@@ -1,3 +1,7 @@
+export const dynamic = 'force-dynamic';
+
+// ...ここから下に、既存の import などのコードが続く
+
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
