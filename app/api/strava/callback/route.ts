@@ -1,19 +1,39 @@
 export const dynamic = 'force-dynamic';
 
-// ...ここから下に、既存の import などのコードが続く
-
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+
+function decodeCredentials(state: string | null): { clientId: string; clientSecret: string } | null {
+  if (!state) return null;
+  try {
+    const decoded = Buffer.from(state, 'base64').toString('utf-8');
+    const [clientId, clientSecret] = decoded.split(':');
+    if (clientId && clientSecret) return { clientId, clientSecret };
+  } catch {
+    // fall through
+  }
+  return null;
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  
+  const stateParam = searchParams.get('state');
+
   // 期間指定（デフォルトは2010年〜現在）
   const after = searchParams.get('after') || '1262304000';
   const before = searchParams.get('before') || Math.floor(Date.now() / 1000).toString();
 
   if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
+
+  // state から資格情報を取得、なければ環境変数にフォールバック
+  const creds = decodeCredentials(stateParam);
+  const clientId = creds?.clientId ?? process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
+  const clientSecret = creds?.clientSecret ?? process.env.STRAVA_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    return NextResponse.json({ error: 'Strava credentials not found. Please provide your own Client ID and Secret.' }, { status: 400 });
+  }
 
   try {
     // 1. Stravaのトークンを取得
@@ -21,8 +41,8 @@ export async function GET(request: Request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        client_id: process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID,
-        client_secret: process.env.STRAVA_CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
         code: code,
         grant_type: 'authorization_code',
       }),
