@@ -115,7 +115,8 @@ useEffect(() => {
   setOrigin(window.location.origin);
 }, []);
 
-const stravaAuthUrl = `https://www.strava.com/oauth/authorize?client_id=${STRAVA_CLIENT_ID}&response_type=code&redirect_uri=${origin}/&approval_prompt=force&scope=activity:read_all`;
+// 💡 変数を使わず、一字一句間違いのないURLを直接書く
+const stravaAuthUrl = `https://www.strava.com/oauth/authorize?client_id=214024&response_type=code&redirect_uri=https://qucc-activity-hub1.vercel.app&approval_prompt=force&scope=activity:read_all`;
   return (
     <main className="flex flex-col h-screen bg-white text-gray-900 overflow-hidden relative font-sans">
       <header className="flex p-4 justify-between items-center border-b bg-white z-10 shadow-sm">
