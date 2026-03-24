@@ -40,6 +40,9 @@ export default function Home() {
 
   const [entryYear, setEntryYear] = useState(2025);
   const [years, setYears] = useState(4);
+  const [ownClientId, setOwnClientId] = useState('');
+  const [ownClientSecret, setOwnClientSecret] = useState('');
+  const [showSecret, setShowSecret] = useState(false);
 
   const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
   const STRAVA_CLIENT_ID = process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
@@ -84,17 +87,24 @@ export default function Home() {
 
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
+    const stateParam = urlParams.get('state');
     if (code) {
       setLoading(true);
-      const start = new Date(`${entryYear}-04-01T00:00:00Z`).getTime() / 1000;
-      const end = new Date(`${entryYear + years}-03-31T23:59:59Z`).getTime() / 1000;
-      fetch(`/api/strava/callback?code=${code}&after=${start}&before=${end}`)
+      const savedEntryYear = parseInt(localStorage.getItem('qucc_entry_year') || String(entryYear));
+      const savedYears = parseInt(localStorage.getItem('qucc_years') || String(years));
+      const start = new Date(`${savedEntryYear}-04-01T00:00:00Z`).getTime() / 1000;
+      const end = new Date(`${savedEntryYear + savedYears}-03-31T23:59:59Z`).getTime() / 1000;
+      const callbackParams = new URLSearchParams({ code, after: String(start), before: String(end) });
+      if (stateParam) callbackParams.set('state', stateParam);
+      fetch(`/api/strava/callback?${callbackParams.toString()}`)
         .then(res => res.json())
         .then(data => {
           if (data.strava_id) {
             localStorage.setItem('qucc_strava_id', String(data.strava_id));
             setMyStravaId(String(data.strava_id));
           }
+          localStorage.removeItem('qucc_entry_year');
+          localStorage.removeItem('qucc_years');
           window.history.replaceState({}, '', '/');
           loadData();
           setLoading(false);
@@ -109,15 +119,27 @@ export default function Home() {
   const handleUpdateProfile = async () => { if (targetProfileId) { await supabase.from('profiles').update(editForm).eq('id', targetProfileId); setIsEditModalOpen(false); loadData(); } };
 
   const lineLayer: any = { id: 'strava-path', type: 'line', paint: { 'line-color': '#85023e', 'line-width': selectedUserId ? ['case', ['==', ['get', 'user_id'], selectedUserId], 1.5, 0.3] : 0.7, 'line-opacity': selectedUserId ? ['case', ['==', ['get', 'user_id'], selectedUserId], 0.7, 0.03] : 0.15 } };
-  // 💡 redirect_uri を localhost 固定から自動取得に変更
-const [origin, setOrigin] = useState('');
-useEffect(() => {
-  setOrigin(window.location.origin);
-}, []);
+  const [origin, setOrigin] = useState('');
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
-// 💡 変数を使わず、一字一句間違いのないURLを直接書く
-// 💡 redirect_uri の部分を特殊な記号に変換したバージョンです// 💡 redirect_uri から最後のスラッシュを完全に排除した「最強の固定URL」です
-const stravaAuthUrl = `https://www.strava.com/oauth/authorize?client_id=214024&response_type=code&redirect_uri=https://qucc-activity-hub1.vercel.app&approval_prompt=force&scope=activity:read_all`;
+  const stravaAuthUrl = (() => {
+    const clientId = ownClientId.trim() || STRAVA_CLIENT_ID;
+    const redirectUri = origin || 'https://qucc-activity-hub1.vercel.app';
+    const state = ownClientId.trim() && ownClientSecret.trim()
+      ? btoa(`${ownClientId.trim()}:${ownClientSecret.trim()}`)
+      : '';
+    const params = new URLSearchParams({
+      client_id: clientId ?? '',
+      response_type: 'code',
+      redirect_uri: redirectUri,
+      approval_prompt: 'force',
+      scope: 'activity:read_all',
+      ...(state ? { state } : {}),
+    });
+    return `https://www.strava.com/oauth/authorize?${params.toString()}`;
+  })();
   return (
     <main className="flex flex-col h-screen bg-white text-gray-900 overflow-hidden relative font-sans">
       <header className="flex p-4 justify-between items-center border-b bg-white z-10 shadow-sm">
@@ -223,7 +245,26 @@ const stravaAuthUrl = `https://www.strava.com/oauth/authorize?client_id=214024&r
                 </select>
               </div>
             </div>
-            <a href={stravaAuthUrl} className="block w-full bg-[#FC4C02] text-white font-black py-5 rounded-[25px] text-xs uppercase shadow-xl hover:translate-y-[-2px] transition-all">Connect Strava</a>
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 text-left mb-2">
+              <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1">Strava API App Required</p>
+              <p className="text-[9px] text-gray-500 leading-relaxed">Strava の無料枠は1アプリにつき1名のみ接続可能です。<br/>自分の API アプリを作成してください：<br/><span className="font-bold text-gray-700">strava.com/settings/api</span><br/>Callback Domain: <span className="font-bold text-gray-700">qucc-activity-hub1.vercel.app</span></p>
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Strava Client ID</label>
+              <input type="text" placeholder="例: 123456" value={ownClientId} onChange={e => setOwnClientId(e.target.value)} className="w-full bg-gray-50 border rounded-2xl p-4 font-bold text-sm outline-none" />
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Strava Client Secret</label>
+              <div className="relative">
+                <input type={showSecret ? 'text' : 'password'} placeholder="40文字の英数字" value={ownClientSecret} onChange={e => setOwnClientSecret(e.target.value)} className="w-full bg-gray-50 border rounded-2xl p-4 font-bold text-sm outline-none pr-16" />
+                <button type="button" onClick={() => setShowSecret(s => !s)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[9px] font-black text-gray-400 uppercase">{showSecret ? 'HIDE' : 'SHOW'}</button>
+              </div>
+            </div>
+            <a
+              href={stravaAuthUrl}
+              onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }}
+              className={`block w-full text-white font-black py-5 rounded-[25px] text-xs uppercase shadow-xl transition-all ${ownClientId.trim() && ownClientSecret.trim() ? 'bg-[#FC4C02] hover:translate-y-[-2px]' : 'bg-gray-300 cursor-not-allowed pointer-events-none'}`}
+            >Connect Strava</a>
             <button onClick={() => setShowJoinModal(false)} className="mt-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Later</button>
           </div>
         </div>
