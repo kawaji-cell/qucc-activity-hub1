@@ -20,13 +20,11 @@ export async function GET(request: Request) {
   const code = searchParams.get('code');
   const stateParam = searchParams.get('state');
 
-  // 期間指定（デフォルトは2010年〜現在）
   const after = searchParams.get('after') || '1262304000';
   const before = searchParams.get('before') || Math.floor(Date.now() / 1000).toString();
 
   if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
 
-  // state から資格情報を取得、なければ環境変数にフォールバック
   const creds = decodeCredentials(stateParam);
   const clientId = creds?.clientId ?? process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
   const clientSecret = creds?.clientSecret ?? process.env.STRAVA_CLIENT_SECRET;
@@ -36,7 +34,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Stravaのトークンを取得
     const tokenResponse = await fetch('https://www.strava.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -54,23 +51,19 @@ export async function GET(request: Request) {
 
     if (!accessToken) throw new Error('アクセストークンの取得に失敗しました');
 
-    // 2. プロフィールの保存（upsert）
-    // route.ts の 51行目付近：upsert の中身を修正
-const { data: userData, error: userError } = await supabase
-  .from('profiles')
-  .upsert({
-    strava_id: athlete.id,
-    display_name: `${athlete.firstname} ${athlete.lastname}`,
-    // 💡 ここを追加：URLから受け取った年度を保存する
-    entry_year: searchParams.get('entry_year') ? parseInt(searchParams.get('entry_year')!) : null,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'strava_id' })
-  .select()
-  .single();
+    const { data: userData, error: userError } = await supabase
+      .from('profiles')
+      .upsert({
+        strava_id: athlete.id,
+        display_name: `${athlete.firstname} ${athlete.lastname}`,
+        entry_year: searchParams.get('entry_year') ? parseInt(searchParams.get('entry_year')!) : null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'strava_id' })
+      .select()
+      .single();
 
     if (userError) throw userError;
 
-    // 3. アクティビティをループで取得して保存
     let page = 1;
     let totalSaved = 0;
 
@@ -100,11 +93,9 @@ const { data: userData, error: userError } = await supabase
         }
       }
       page++;
-      if (page > 10) break; // 最大2000件でストップ
+      if (page > 10) break; 
     }
 
-    // 💡 修正のキモ：リダイレクトせず、JSONでIDを返す
-    // これにより、フロント側で「今のログインユーザーのID」を受け取れるようになる
     return NextResponse.json({ 
       success: true, 
       strava_id: athlete.id,
