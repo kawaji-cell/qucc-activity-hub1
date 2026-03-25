@@ -39,7 +39,7 @@ export default function Home() {
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
   const [entryYear, setEntryYear] = useState(2025);
-  const [years, setYears] = useState(4); // 💡 これがログイン画面に必要
+  const [years, setYears] = useState(4);
   const [ownClientId, setOwnClientId] = useState('');
   const [ownClientSecret, setOwnClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -62,7 +62,6 @@ export default function Home() {
     Object.values(stats).reduce((acc, curr) => acc + curr.distance, 0) / 1000, [stats]);
 
   const loadData = useCallback(async () => {
-    // 💡 登録順（古い順）にするため ascending: true
     const { data: pData } = await supabase.from('profiles').select('*').order('updated_at', { ascending: true });
     if (pData) setProfiles(pData);
     const { data: aData } = await supabase.from('activities').select('*');
@@ -126,7 +125,6 @@ export default function Home() {
   const approveMember = async (id: string) => { if (isAdmin) { await supabase.from('profiles').update({ status: 'active' }).eq('id', id); loadData(); } };
   const handleUpdateProfile = async () => { if (targetProfileId) { await supabase.from('profiles').update(editForm).eq('id', targetProfileId); setIsEditModalOpen(false); loadData(); } };
 
-  // 💡 強調表示のロジック。型不一致を防ぐため to-string を追加
   const lineLayer: any = { 
     id: 'strava-path', 
     type: 'line', 
@@ -227,6 +225,17 @@ export default function Home() {
               })}
             </div>
           </div>
+          {isAdmin && (
+            <div className="pt-4 border-t border-red-200 bg-red-50/50 p-2 rounded-2xl">
+              <h2 className="text-[10px] font-black text-red-500 mb-4 uppercase tracking-widest text-center">🛡️ Admin: Pending</h2>
+              {profiles.filter(p => p.status === 'pending').map(p => (
+                <div key={p.id} className="bg-white p-3 rounded-xl border border-red-100 mb-2 shadow-sm text-center">
+                  <p className="text-[10px] font-black text-gray-800 mb-2">{p.display_name}</p>
+                  <button onClick={() => approveMember(p.id)} className="w-full bg-green-500 hover:bg-green-600 text-white text-[9px] font-black py-2 rounded-lg uppercase tracking-widest transition-colors">Approve</button>
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </div>
 
@@ -242,7 +251,6 @@ export default function Home() {
                   {Array.from({length: 21}, (_, i) => 2016 + i).map(y => (<option key={y} value={y}>{y}年度入学 ({y - 1973}回生)</option>))}
                 </select>
               </div>
-              {/* 💡 復活：卒業予定年（活動期間）の選択肢 */}
               <div>
                 <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Course Duration (Years)</label>
                 <select value={years} onChange={(e) => setYears(Number(e.target.value))} className="w-full bg-gray-50 border rounded-xl p-3 font-black text-sm outline-none">
