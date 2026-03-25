@@ -158,7 +158,7 @@ export default function Home() {
       <header className="flex p-4 justify-between items-center border-b bg-white z-20 shadow-sm">
         <div>
           <h1 className="text-xl md:text-2xl font-black text-[#85023e] tracking-tighter italic leading-none">QUCC Hub</h1>
-          <p className="text-[8px] md:text-[9px] font-bold text-gray-400 mt-1 uppercase tracking-widest italic">{isAdmin ? '🛡️ Admin Mode' : `Total: ${totalDistance.toFixed(1)} km Logged`}</p>
+          <p className="text-[8px] md:text-[9px] font-bold text-gray-400 mt-1 uppercase tracking-widest italic">{isAdmin ? '🛡️ Admin Mode' : (session ? `LOGGED IN AS: ${session?.user?.email}` : `Total: ${totalDistance.toFixed(1)} km Logged`)}</p>
         </div>
         <div className="flex gap-2 md:gap-4 items-center scale-90 md:scale-100 origin-right">
           {!session ? (
