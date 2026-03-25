@@ -127,14 +127,14 @@ export default function Home() {
   const handleUpdateProfile = async () => { if (targetProfileId) { await supabase.from('profiles').update(editForm).eq('id', targetProfileId); setIsEditModalOpen(false); loadData(); } };
 
   // 💡 強調表示のロジック。型不一致を防ぐため to-string を追加
-  const lineLayer: any = { 
-    id: 'strava-path', 
-    type: 'line', 
-    paint: { 
-      'line-color': '#85023e', 
-      'line-width': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 2.5, 0.4] : 0.8, 
-      'line-opacity': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 0.8, 0.05] : 0.2 
-    } 
+  const lineLayer: any = {
+    id: 'strava-path',
+    type: 'line',
+    paint: {
+      'line-color': '#85023e',
+      'line-width': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 2.5, 0.4] : 0.8,
+      'line-opacity': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 0.8, 0.05] : 0.2
+    }
   };
 
   const [origin, setOrigin] = useState('');
@@ -142,7 +142,7 @@ export default function Home() {
 
   const stravaAuthUrl = (() => {
     const clientId = ownClientId.trim() || STRAVA_CLIENT_ID;
-    const redirectUri = origin || 'https://qucc-activity-hub1.vercel.app';
+    const redirectUri = process.env.NEXT_PUBLIC_APP_URL ?? origin ?? 'https://qucc-activity-hub1.vercel.app';
     const state = ownClientId.trim() && ownClientSecret.trim() ? btoa(`${ownClientId.trim()}:${ownClientSecret.trim()}`) : '';
     const params = new URLSearchParams({
       client_id: clientId ?? '',
