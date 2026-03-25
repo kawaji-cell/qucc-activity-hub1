@@ -61,8 +61,9 @@ export default function Home() {
   const totalDistance = useMemo(() => 
     Object.values(stats).reduce((acc, curr) => acc + curr.distance, 0) / 1000, [stats]);
 
+  // 💡 ここで 'ascending: true' に変更し、新しい人が下に来るようにしました
   const loadData = useCallback(async () => {
-    const { data: pData } = await supabase.from('profiles').select('*').order('updated_at', { ascending: false });
+    const { data: pData } = await supabase.from('profiles').select('*').order('updated_at', { ascending: true });
     if (pData) setProfiles(pData);
     const { data: aData } = await supabase.from('activities').select('*');
     if (aData && pData) {
@@ -157,22 +158,19 @@ export default function Home() {
           <h1 className="text-xl md:text-2xl font-black text-[#85023e] tracking-tighter italic leading-none">QUCC Hub</h1>
           <p className="text-[8px] md:text-[9px] font-bold text-gray-400 mt-1 uppercase tracking-widest italic">{isAdmin ? '🛡️ Admin Mode' : `Total: ${totalDistance.toFixed(1)} km Logged`}</p>
         </div>
-        <div className="flex gap-2 md:gap-4 items-center scale-90 md:scale-100 origin-right">
+        <div className="flex gap-2 md:gap-4 items-center scale-90 md:scale-100 origin-right text-black font-black">
           {!session ? (
-            <button onClick={handleAdminLogin} className="text-[10px] font-black border-2 border-gray-100 px-3 md:px-4 py-2 rounded-full hover:bg-gray-50 transition-colors">ADMIN</button>
+            <button onClick={handleAdminLogin} className="text-[10px] border-2 border-gray-100 px-3 md:px-4 py-2 rounded-full hover:bg-gray-50 transition-colors">ADMIN</button>
           ) : (
-            <button onClick={handleLogout} className="text-[10px] font-black text-red-500 border-2 border-red-50 px-3 md:px-4 py-2 rounded-full hover:bg-red-50 transition-colors">OUT</button>
+            <button onClick={handleLogout} className="text-[10px] text-red-500 border-2 border-red-50 px-3 md:px-4 py-2 rounded-full hover:bg-red-50 transition-colors">OUT</button>
           )}
-          <button onClick={() => setShowJoinModal(true)} className="bg-[#FC4C02] text-white text-[10px] font-black px-4 md:px-6 py-2 rounded-full shadow-md hover:scale-105 active:scale-95 transition-all">
-            {loading ? 'SYNC...' : 'JOIN'}
+          <button onClick={() => setShowJoinModal(true)} className="bg-[#FC4C02] text-white text-[10px] px-4 md:px-6 py-2 rounded-full shadow-md hover:scale-105 active:scale-95 transition-all">
+            {loading ? 'SYNCING...' : 'JOIN'}
           </button>
         </div>
       </header>
 
-      {/* レスポンシブレイアウト：スマホでは縦、PCでは横 */}
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-        
-        {/* 地図エリア：スマホでは上半分、PCでは右側 */}
         <div className="flex-1 relative bg-gray-100 order-1 md:order-2 h-[55vh] md:h-full">
           <Map {...viewState} onMove={evt => setViewState(evt.viewState)} mapStyle="mapbox://styles/mapbox/light-v11" mapboxAccessToken={MAPBOX_TOKEN} interactiveLayerIds={['strava-path']}
             onMouseMove={e => { const f = e.features && e.features[0]; if (f) setHoverInfo({ lngLat: e.lngLat, props: f.properties }); else setHoverInfo(null); }}
@@ -195,7 +193,6 @@ export default function Home() {
           </Map>
         </div>
 
-        {/* リストエリア：スマホでは下半分、PCでは左側 */}
         <aside className="w-full md:w-72 border-t md:border-t-0 md:border-r overflow-y-auto p-4 flex flex-col gap-6 bg-gray-50 shadow-inner order-2 md:order-1 h-[45vh] md:h-full z-10">
           <div>
             <h2 className="text-[10px] font-black text-gray-400 mb-4 uppercase tracking-[0.2em] border-b pb-1">Members</h2>
@@ -204,6 +201,7 @@ export default function Home() {
                 ALL ROUTES
               </button>
               {profiles.filter(p => p.status === 'active').map(p => {
+                // 💡 入学年度から正確に回生を算出
                 const generation = p.entry_year ? p.entry_year - 1973 : 50; 
                 return (
                   <div key={p.id} className="w-full">
@@ -215,6 +213,7 @@ export default function Home() {
                         )}
                       </div>
                       <p className={`text-[8px] font-bold mt-1 ${selectedUserId === p.id ? 'text-white/80' : 'text-gray-400'}`}>🚲 {p.bike_model || 'Bicycle'}</p>
+                      {/* 💡 Bioを斜体で表示 */}
                       {p.bio && <p className={`text-[8px] italic mt-0.5 leading-tight ${selectedUserId === p.id ? 'text-white/70' : 'text-gray-400'}`}>"{p.bio}"</p>}
                       <div className="flex gap-2 mt-1 opacity-70 text-[9px] font-bold">
                         <span>📏 {((stats[p.id]?.distance || 0) / 1000).toFixed(1)} km</span>
@@ -226,7 +225,6 @@ export default function Home() {
               })}
             </div>
           </div>
-
           {isAdmin && (
             <div className="pt-4 border-t border-red-200 bg-red-50/50 p-2 rounded-2xl">
               <h2 className="text-[10px] font-black text-red-500 mb-4 uppercase tracking-widest text-center">🛡️ Admin: Pending</h2>
@@ -253,10 +251,6 @@ export default function Home() {
                   {Array.from({length: 21}, (_, i) => 2016 + i).map(y => (<option key={y} value={y}>{y}年度入学 ({y - 1973}回生)</option>))}
                 </select>
               </div>
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-left">
-                <p className="text-[8px] font-black text-orange-600 uppercase tracking-widest mb-1">Your Strava API Key</p>
-                <p className="text-[8px] text-gray-500 leading-tight">Callback Domain: <span className="font-bold">qucc-activity-hub1.vercel.app</span></p>
-              </div>
               <div>
                 <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Client ID</label>
                 <input type="text" placeholder="123456" value={ownClientId} onChange={e => setOwnClientId(e.target.value)} className="w-full bg-gray-50 border rounded-xl p-3 md:p-4 font-bold text-sm outline-none" />
@@ -269,11 +263,7 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <a
-              href={stravaAuthUrl}
-              onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }}
-              className={`block w-full text-white font-black py-4 md:py-5 rounded-[20px] md:rounded-[25px] text-xs uppercase shadow-xl transition-all ${ownClientId.trim() && ownClientSecret.trim() ? 'bg-[#FC4C02] hover:translate-y-[-2px]' : 'bg-gray-300 cursor-not-allowed pointer-events-none'}`}
-            >Connect Strava</a>
+            <a href={stravaAuthUrl} onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }} className={`block w-full text-white font-black py-4 md:py-5 rounded-[20px] md:rounded-[25px] text-xs uppercase shadow-xl transition-all ${ownClientId.trim() && ownClientSecret.trim() ? 'bg-[#FC4C02] hover:translate-y-[-2px]' : 'bg-gray-300 cursor-not-allowed pointer-events-none'}`}>Connect Strava</a>
             <button onClick={() => setShowJoinModal(false)} className="mt-4 md:mt-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Later</button>
           </div>
         </div>
