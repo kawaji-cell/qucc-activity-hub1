@@ -55,15 +55,18 @@ export async function GET(request: Request) {
     if (!accessToken) throw new Error('アクセストークンの取得に失敗しました');
 
     // 2. プロフィールの保存（upsert）
-    const { data: userData, error: userError } = await supabase
-      .from('profiles')
-      .upsert({
-        strava_id: athlete.id,
-        display_name: `${athlete.firstname} ${athlete.lastname}`,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'strava_id' })
-      .select()
-      .single();
+    // route.ts の 51行目付近：upsert の中身を修正
+const { data: userData, error: userError } = await supabase
+  .from('profiles')
+  .upsert({
+    strava_id: athlete.id,
+    display_name: `${athlete.firstname} ${athlete.lastname}`,
+    // 💡 ここを追加：URLから受け取った年度を保存する
+    entry_year: searchParams.get('entry_year') ? parseInt(searchParams.get('entry_year')!) : null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'strava_id' })
+  .select()
+  .single();
 
     if (userError) throw userError;
 
