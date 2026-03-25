@@ -39,7 +39,7 @@ export default function Home() {
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
   const [entryYear, setEntryYear] = useState(2025);
-  const [years, setYears] = useState(4);
+  const [years, setYears] = useState(4); // 💡 これがログイン画面に必要
   const [ownClientId, setOwnClientId] = useState('');
   const [ownClientSecret, setOwnClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
@@ -61,8 +61,8 @@ export default function Home() {
   const totalDistance = useMemo(() => 
     Object.values(stats).reduce((acc, curr) => acc + curr.distance, 0) / 1000, [stats]);
 
-  // 💡 ここで 'ascending: true' に変更し、新しい人が下に来るようにしました
   const loadData = useCallback(async () => {
+    // 💡 登録順（古い順）にするため ascending: true
     const { data: pData } = await supabase.from('profiles').select('*').order('updated_at', { ascending: true });
     if (pData) setProfiles(pData);
     const { data: aData } = await supabase.from('activities').select('*');
@@ -72,7 +72,7 @@ export default function Home() {
         const rider = pData.find(p => p.id === act.user_id);
         return {
           type: 'Feature',
-          properties: { user_id: act.user_id, userName: rider?.display_name || 'Unknown', name: act.name, distance: act.distance, elevation: act.total_elevation_gain || 0, start_date: act.start_date },
+          properties: { user_id: String(act.user_id), userName: rider?.display_name || 'Unknown', name: act.name, distance: act.distance, elevation: act.total_elevation_gain || 0, start_date: act.start_date },
           geometry: { type: 'LineString', coordinates: decodePolyline(act.polyline) }
         };
       });
@@ -94,8 +94,10 @@ export default function Home() {
       callbackHandled.current = true;
       window.history.replaceState({}, '', '/');
       setLoading(true);
+      
       const savedEntryYear = parseInt(localStorage.getItem('qucc_entry_year') || String(entryYear));
       const savedYears = parseInt(localStorage.getItem('qucc_years') || String(years));
+      
       const start = new Date(`${savedEntryYear}-04-01T00:00:00Z`).getTime() / 1000;
       const end = new Date(`${savedEntryYear + savedYears}-03-31T23:59:59Z`).getTime() / 1000;
       
@@ -109,11 +111,7 @@ export default function Home() {
 
       fetch(`/api/strava/callback?${callbackParams.toString()}`)
         .then(res => res.json())
-        .then(data => {
-          if (data.strava_id) {
-            localStorage.setItem('qucc_strava_id', String(data.strava_id));
-            setMyStravaId(String(data.strava_id));
-          }
+        .then(() => {
           localStorage.removeItem('qucc_entry_year');
           localStorage.removeItem('qucc_years');
           loadData();
@@ -128,18 +126,24 @@ export default function Home() {
   const approveMember = async (id: string) => { if (isAdmin) { await supabase.from('profiles').update({ status: 'active' }).eq('id', id); loadData(); } };
   const handleUpdateProfile = async () => { if (targetProfileId) { await supabase.from('profiles').update(editForm).eq('id', targetProfileId); setIsEditModalOpen(false); loadData(); } };
 
-  const lineLayer: any = { id: 'strava-path', type: 'line', paint: { 'line-color': '#85023e', 'line-width': selectedUserId ? ['case', ['==', ['get', 'user_id'], selectedUserId], 1.5, 0.3] : 0.7, 'line-opacity': selectedUserId ? ['case', ['==', ['get', 'user_id'], selectedUserId], 0.7, 0.03] : 0.15 } };
+  // 💡 強調表示のロジック。型不一致を防ぐため to-string を追加
+  const lineLayer: any = { 
+    id: 'strava-path', 
+    type: 'line', 
+    paint: { 
+      'line-color': '#85023e', 
+      'line-width': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 2.5, 0.4] : 0.8, 
+      'line-opacity': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 0.8, 0.05] : 0.2 
+    } 
+  };
+
   const [origin, setOrigin] = useState('');
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
+  useEffect(() => { setOrigin(window.location.origin); }, []);
 
   const stravaAuthUrl = (() => {
     const clientId = ownClientId.trim() || STRAVA_CLIENT_ID;
     const redirectUri = origin || 'https://qucc-activity-hub1.vercel.app';
-    const state = ownClientId.trim() && ownClientSecret.trim()
-      ? btoa(`${ownClientId.trim()}:${ownClientSecret.trim()}`)
-      : '';
+    const state = ownClientId.trim() && ownClientSecret.trim() ? btoa(`${ownClientId.trim()}:${ownClientSecret.trim()}`) : '';
     const params = new URLSearchParams({
       client_id: clientId ?? '',
       response_type: 'code',
@@ -158,13 +162,13 @@ export default function Home() {
           <h1 className="text-xl md:text-2xl font-black text-[#85023e] tracking-tighter italic leading-none">QUCC Hub</h1>
           <p className="text-[8px] md:text-[9px] font-bold text-gray-400 mt-1 uppercase tracking-widest italic">{isAdmin ? '🛡️ Admin Mode' : `Total: ${totalDistance.toFixed(1)} km Logged`}</p>
         </div>
-        <div className="flex gap-2 md:gap-4 items-center scale-90 md:scale-100 origin-right text-black font-black">
+        <div className="flex gap-2 md:gap-4 items-center scale-90 md:scale-100 origin-right">
           {!session ? (
-            <button onClick={handleAdminLogin} className="text-[10px] border-2 border-gray-100 px-3 md:px-4 py-2 rounded-full hover:bg-gray-50 transition-colors">ADMIN</button>
+            <button onClick={handleAdminLogin} className="text-[10px] font-black border-2 border-gray-100 px-3 md:px-4 py-2 rounded-full hover:bg-gray-50">ADMIN</button>
           ) : (
-            <button onClick={handleLogout} className="text-[10px] text-red-500 border-2 border-red-50 px-3 md:px-4 py-2 rounded-full hover:bg-red-50 transition-colors">OUT</button>
+            <button onClick={handleLogout} className="text-[10px] font-black text-red-500 border-2 border-red-50 px-3 md:px-4 py-2 rounded-full hover:bg-red-50">OUT</button>
           )}
-          <button onClick={() => setShowJoinModal(true)} className="bg-[#FC4C02] text-white text-[10px] px-4 md:px-6 py-2 rounded-full shadow-md hover:scale-105 active:scale-95 transition-all">
+          <button onClick={() => setShowJoinModal(true)} className="bg-[#FC4C02] text-white text-[10px] font-black px-4 md:px-6 py-2 rounded-full shadow-md">
             {loading ? 'SYNCING...' : 'JOIN'}
           </button>
         </div>
@@ -193,7 +197,7 @@ export default function Home() {
           </Map>
         </div>
 
-        <aside className="w-full md:w-72 border-t md:border-t-0 md:border-r overflow-y-auto p-4 flex flex-col gap-6 bg-gray-50 shadow-inner order-2 md:order-1 h-[45vh] md:h-full z-10">
+        <aside className="w-full md:w-72 border-t md:border-t-0 md:border-r overflow-y-auto p-4 flex flex-col gap-6 bg-gray-50 order-2 md:order-1 h-[45vh] md:h-full z-10">
           <div>
             <h2 className="text-[10px] font-black text-gray-400 mb-4 uppercase tracking-[0.2em] border-b pb-1">Members</h2>
             <div className="flex flex-col gap-2">
@@ -201,7 +205,6 @@ export default function Home() {
                 ALL ROUTES
               </button>
               {profiles.filter(p => p.status === 'active').map(p => {
-                // 💡 入学年度から正確に回生を算出
                 const generation = p.entry_year ? p.entry_year - 1973 : 50; 
                 return (
                   <div key={p.id} className="w-full">
@@ -209,11 +212,10 @@ export default function Home() {
                       <div className="flex justify-between items-start">
                         <span className="text-[11px] font-black uppercase tracking-tight">{p.display_name} <span className={`ml-1 text-[9px] font-bold ${selectedUserId === p.id ? 'text-white/60' : 'text-gray-400'}`}>({generation}回生)</span></span>
                         {String(p.strava_id) === String(myStravaId) && (
-                          <span onClick={(e) => { e.stopPropagation(); setTargetProfileId(p.id); setEditForm({ display_name: p.display_name, bio: p.bio || '', bike_model: p.bike_model || '' }); setIsEditModalOpen(true); }} className="text-[8px] bg-[#FC4C02] text-white px-2 py-0.5 rounded font-black cursor-pointer hover:scale-110 transition-transform">EDIT</span>
+                          <span onClick={(e) => { e.stopPropagation(); setTargetProfileId(p.id); setEditForm({ display_name: p.display_name, bio: p.bio || '', bike_model: p.bike_model || '' }); setIsEditModalOpen(true); }} className="text-[8px] bg-[#FC4C02] text-white px-2 py-0.5 rounded font-black cursor-pointer">EDIT</span>
                         )}
                       </div>
                       <p className={`text-[8px] font-bold mt-1 ${selectedUserId === p.id ? 'text-white/80' : 'text-gray-400'}`}>🚲 {p.bike_model || 'Bicycle'}</p>
-                      {/* 💡 Bioを斜体で表示 */}
                       {p.bio && <p className={`text-[8px] italic mt-0.5 leading-tight ${selectedUserId === p.id ? 'text-white/70' : 'text-gray-400'}`}>"{p.bio}"</p>}
                       <div className="flex gap-2 mt-1 opacity-70 text-[9px] font-bold">
                         <span>📏 {((stats[p.id]?.distance || 0) / 1000).toFixed(1)} km</span>
@@ -225,46 +227,45 @@ export default function Home() {
               })}
             </div>
           </div>
-          {isAdmin && (
-            <div className="pt-4 border-t border-red-200 bg-red-50/50 p-2 rounded-2xl">
-              <h2 className="text-[10px] font-black text-red-500 mb-4 uppercase tracking-widest text-center">🛡️ Admin: Pending</h2>
-              {profiles.filter(p => p.status === 'pending').map(p => (
-                <div key={p.id} className="bg-white p-3 rounded-xl border border-red-100 mb-2 shadow-sm text-center">
-                  <p className="text-[10px] font-black text-gray-800 mb-2">{p.display_name}</p>
-                  <button onClick={() => approveMember(p.id)} className="w-full bg-green-500 hover:bg-green-600 text-white text-[9px] font-black py-2 rounded-lg uppercase tracking-widest transition-colors">Approve</button>
-                </div>
-              ))}
-            </div>
-          )}
         </aside>
       </div>
 
       {showJoinModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[200] backdrop-blur-md p-4" onClick={() => setShowJoinModal(false)}>
-          <div className="bg-white rounded-[30px] md:rounded-[40px] p-6 md:p-10 w-full max-w-sm shadow-2xl text-center max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="text-4xl md:text-5xl mb-4 md:mb-6">🚴‍♂️</div>
+          <div className="bg-white rounded-[30px] md:rounded-[40px] p-6 md:p-10 w-full max-w-sm shadow-2xl text-center max-h-[95vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="text-4xl md:text-5xl mb-4">🚴‍♂️</div>
             <h2 className="text-xl md:text-2xl font-black text-[#85023e] mb-2 uppercase italic tracking-tighter">Register to Hub</h2>
-            <div className="flex flex-col gap-3 md:gap-4 mb-6 text-left">
+            <div className="flex flex-col gap-3 mb-6 text-left">
               <div>
                 <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Enrollment Year</label>
-                <select value={entryYear} onChange={(e) => setEntryYear(Number(e.target.value))} className="w-full bg-gray-50 border rounded-xl md:rounded-2xl p-3 md:p-4 font-black text-sm outline-none cursor-pointer">
+                <select value={entryYear} onChange={(e) => setEntryYear(Number(e.target.value))} className="w-full bg-gray-50 border rounded-xl p-3 font-black text-sm outline-none">
                   {Array.from({length: 21}, (_, i) => 2016 + i).map(y => (<option key={y} value={y}>{y}年度入学 ({y - 1973}回生)</option>))}
                 </select>
               </div>
+              {/* 💡 復活：卒業予定年（活動期間）の選択肢 */}
+              <div>
+                <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Course Duration (Years)</label>
+                <select value={years} onChange={(e) => setYears(Number(e.target.value))} className="w-full bg-gray-50 border rounded-xl p-3 font-black text-sm outline-none">
+                  {Array.from({length: 10}, (_, i) => i + 1).map(y => (<option key={y} value={y}>{y}年間（卒業まで）</option>))}
+                </select>
+              </div>
+              <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-[8px] text-gray-500 leading-tight">
+                Callback Domain: <span className="font-bold">qucc-activity-hub1.vercel.app</span>
+              </div>
               <div>
                 <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Client ID</label>
-                <input type="text" placeholder="123456" value={ownClientId} onChange={e => setOwnClientId(e.target.value)} className="w-full bg-gray-50 border rounded-xl p-3 md:p-4 font-bold text-sm outline-none" />
+                <input type="text" placeholder="123456" value={ownClientId} onChange={e => setOwnClientId(e.target.value)} className="w-full bg-gray-50 border rounded-xl p-3 font-bold text-sm outline-none" />
               </div>
               <div>
                 <label className="text-[9px] font-black text-gray-300 uppercase tracking-widest ml-4 mb-1 block">Client Secret</label>
                 <div className="relative">
-                  <input type={showSecret ? 'text' : 'password'} placeholder="40文字" value={ownClientSecret} onChange={e => setOwnClientSecret(e.target.value)} className="w-full bg-gray-50 border rounded-xl p-3 md:p-4 font-bold text-sm outline-none pr-16" />
+                  <input type={showSecret ? 'text' : 'password'} placeholder="40文字" value={ownClientSecret} onChange={e => setOwnClientSecret(e.target.value)} className="w-full bg-gray-50 border rounded-xl p-3 font-bold text-sm outline-none pr-16" />
                   <button type="button" onClick={() => setShowSecret(s => !s)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[9px] font-black text-gray-400 uppercase">{showSecret ? 'HIDE' : 'SHOW'}</button>
                 </div>
               </div>
             </div>
-            <a href={stravaAuthUrl} onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }} className={`block w-full text-white font-black py-4 md:py-5 rounded-[20px] md:rounded-[25px] text-xs uppercase shadow-xl transition-all ${ownClientId.trim() && ownClientSecret.trim() ? 'bg-[#FC4C02] hover:translate-y-[-2px]' : 'bg-gray-300 cursor-not-allowed pointer-events-none'}`}>Connect Strava</a>
-            <button onClick={() => setShowJoinModal(false)} className="mt-4 md:mt-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Later</button>
+            <a href={stravaAuthUrl} onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }} className={`block w-full text-white font-black py-4 rounded-[20px] text-xs uppercase shadow-xl ${ownClientId.trim() && ownClientSecret.trim() ? 'bg-[#FC4C02]' : 'bg-gray-300 pointer-events-none'}`}>Connect Strava</a>
+            <button onClick={() => setShowJoinModal(false)} className="mt-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Later</button>
           </div>
         </div>
       )}
@@ -277,7 +278,7 @@ export default function Home() {
               <input type="text" placeholder="Name" value={editForm.display_name} onChange={(e) => setEditForm({...editForm, display_name: e.target.value})} className="w-full bg-gray-50 rounded-xl px-5 py-4 font-bold text-sm outline-none" />
               <input type="text" placeholder="My Bike" value={editForm.bike_model} onChange={(e) => setEditForm({...editForm, bike_model: e.target.value})} className="w-full bg-gray-50 rounded-xl px-5 py-4 font-bold text-sm outline-none" />
               <textarea rows={3} placeholder="Bio" value={editForm.bio} onChange={(e) => setEditForm({...editForm, bio: e.target.value})} className="w-full bg-gray-50 rounded-xl px-5 py-4 font-medium text-xs outline-none resize-none" />
-              <div className="flex gap-3"><button onClick={() => setIsEditModalOpen(false)} className="flex-1 bg-gray-100 text-gray-400 font-black py-3 rounded-2xl text-[10px] uppercase">Cancel</button><button onClick={handleUpdateProfile} className="flex-1 bg-[#85023e] text-white font-black py-3 rounded-2xl text-[10px] uppercase shadow-lg shadow-[#85023e]/20">Save</button></div>
+              <div className="flex gap-3"><button onClick={() => setIsEditModalOpen(false)} className="flex-1 bg-gray-100 text-gray-400 font-black py-3 rounded-2xl text-[10px] uppercase">Cancel</button><button onClick={handleUpdateProfile} className="flex-1 bg-[#85023e] text-white font-black py-3 rounded-2xl text-[10px] uppercase">Save</button></div>
             </div>
           </div>
         </div>
