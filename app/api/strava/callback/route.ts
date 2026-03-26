@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   const clientSecret = creds?.clientSecret ?? process.env.STRAVA_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    return NextResponse.json({ error: 'Strava credentials not found. Please provide your own Client ID and Secret.' }, { status: 400 });
+    return NextResponse.json({ error: 'Strava credentials not found.' }, { status: 400 });
   }
 
   try {
@@ -46,10 +46,16 @@ export async function GET(request: Request) {
     });
 
     const tokenData = await tokenResponse.json();
+    
+    if (!tokenResponse.ok) {
+      console.error('Strava Token Error:', tokenData);
+      throw new Error(`Strava API Error: ${tokenData.message || 'Token fetch failed'}`);
+    }
+
     const accessToken = tokenData.access_token;
     const athlete = tokenData.athlete;
 
-    if (!accessToken) throw new Error('アクセストークンの取得に失敗しました');
+    if (!accessToken || !athlete) throw new Error('アクセストークンの取得に失敗しました');
 
     const { data: userData, error: userError } = await supabase
       .from('profiles')
@@ -57,12 +63,16 @@ export async function GET(request: Request) {
         strava_id: athlete.id,
         display_name: `${athlete.firstname} ${athlete.lastname}`,
         entry_year: searchParams.get('entry_year') ? parseInt(searchParams.get('entry_year')!) : null,
+        status: 'pending',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'strava_id' })
       .select()
       .single();
 
-    if (userError) throw userError;
+    if (userError) {
+      console.error('Supabase Profile Upsert Error:', userError);
+      throw userError;
+    }
 
     let page = 1;
     let totalSaved = 0;
@@ -89,6 +99,7 @@ export async function GET(request: Request) {
             start_date: act.start_date
           }, { onConflict: 'strava_activity_id' });
           
+          if (actError) console.error('Supabase Activity Upsert Error:', actError);
           if (!actError) totalSaved++;
         }
       }
@@ -103,7 +114,7 @@ export async function GET(request: Request) {
     });
 
   } catch (error: any) {
-    console.error('🔥 API Error:', error.message);
+    console.error('API Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
