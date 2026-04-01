@@ -272,7 +272,7 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <a href={stravaAuthUrl} onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }} className={`block w-full text-white font-black py-4 rounded-[20px] text-xs uppercase shadow-xl ${ownClientId.trim() && ownClientSecret.trim() ? 'bg-[#FC4C02]' : 'bg-gray-300 pointer-events-none'}`}>Connect Strava</a>
+            <a href={stravaAuthUrl} onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }} className={`block w-full text-white font-black py-4 rounded-[20px] text-xs uppercase shadow-xl ${(ownClientId.trim() && ownClientSecret.trim()) || STRAVA_CLIENT_ID ? 'bg-[#FC4C02]' : 'bg-gray-300 pointer-events-none'}`}>Connect Strava</a>
             <button onClick={() => setShowJoinModal(false)} className="mt-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Later</button>
           </div>
         </div>
