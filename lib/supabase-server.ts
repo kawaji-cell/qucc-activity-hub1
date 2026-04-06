@@ -1,24 +1,31 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+let supabaseServerSingleton: SupabaseClient | null = null;
 
-if (!supabaseUrl) {
-  throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured.');
-}
+export function getSupabaseServerClient(): SupabaseClient {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseServiceRoleKey && !supabaseAnonKey) {
-  throw new Error('Supabase server credentials are not configured.');
-}
+  if (!supabaseUrl) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL is not configured.');
+  }
 
-export const supabaseServer = createClient(
-  supabaseUrl,
-  supabaseServiceRoleKey ?? supabaseAnonKey!,
-  {
+  if (!supabaseServiceRoleKey) {
+    throw new Error(
+      'SUPABASE_SERVICE_ROLE_KEY is not configured. Add it to the server environment for Strava callback writes.'
+    );
+  }
+
+  if (supabaseServerSingleton) {
+    return supabaseServerSingleton;
+  }
+
+  supabaseServerSingleton = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  }
-);
+  });
+
+  return supabaseServerSingleton;
+}

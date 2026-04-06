@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { supabaseServer } from '@/lib/supabase-server';
+import { getSupabaseServerClient } from '@/lib/supabase-server';
 
 function decodeCredentials(state: string | null): { clientId: string; clientSecret: string } | null {
   if (!state) return null;
@@ -13,6 +13,39 @@ function decodeCredentials(state: string | null): { clientId: string; clientSecr
     // fall through
   }
   return null;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeError = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+    const parts = [
+      typeof maybeError.message === 'string' ? maybeError.message : null,
+      typeof maybeError.details === 'string' && maybeError.details ? maybeError.details : null,
+      typeof maybeError.hint === 'string' && maybeError.hint
+        ? `Hint: ${maybeError.hint}`
+        : null,
+      typeof maybeError.code === 'string' && maybeError.code ? `Code: ${maybeError.code}` : null,
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join(' ');
+    }
+  }
+
+  return 'Unknown error';
 }
 
 export async function GET(request: Request) {
@@ -28,13 +61,13 @@ export async function GET(request: Request) {
   const creds = decodeCredentials(stateParam);
   const clientId = creds?.clientId ?? process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
   const clientSecret = creds?.clientSecret ?? process.env.STRAVA_CLIENT_SECRET;
-  const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   if (!clientId || !clientSecret) {
     return NextResponse.json({ error: 'Strava credentials not found.' }, { status: 400 });
   }
 
   try {
+    const supabaseServer = getSupabaseServerClient();
     const tokenResponse = await fetch('https://www.strava.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -67,7 +100,9 @@ export async function GET(request: Request) {
       .upsert({
         strava_id: athlete.id,
         display_name: `${athlete.firstname} ${athlete.lastname}`,
-        entry_year: searchParams.get('entry_year') ? parseInt(searchParams.get('entry_year')!) : null,
+        entry_year: searchParams.get('entry_year')
+          ? parseInt(searchParams.get('entry_year')!, 10)
+          : null,
         status: 'pending',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'strava_id' })
@@ -76,10 +111,7 @@ export async function GET(request: Request) {
 
     if (userError) {
       console.error('Supabase Profile Upsert Error:', userError);
-      if (!hasServiceRole && userError.code === '42501') {
-        throw new Error('Supabase write denied. Configure SUPABASE_SERVICE_ROLE_KEY for server-side writes.');
-      }
-      throw userError;
+      throw new Error(`Supabase profile upsert failed: ${getErrorMessage(userError)}`);
     }
 
     let page = 1;
@@ -109,9 +141,7 @@ export async function GET(request: Request) {
           
           if (actError) {
             console.error('Supabase Activity Upsert Error:', actError);
-            if (!hasServiceRole && actError.code === '42501') {
-              throw new Error('Supabase write denied. Configure SUPABASE_SERVICE_ROLE_KEY for server-side writes.');
-            }
+            throw new Error(`Supabase activity upsert failed: ${getErrorMessage(actError)}`);
           }
           if (!actError) totalSaved++;
         }
@@ -127,8 +157,7 @@ export async function GET(request: Request) {
     });
 
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('API Error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('API Error:', error);
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
