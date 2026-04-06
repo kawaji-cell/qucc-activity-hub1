@@ -542,6 +542,7 @@ NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/api/callback  # 開発
 # Supabase
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
 ### 8.3 Vercel 本番環境の設定
@@ -551,6 +552,7 @@ Vercel Dashboard > Settings > Environment Variables に追加:
 ```
 NEXT_PUBLIC_SUPABASE_URL        = https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY   = your_anon_key
+SUPABASE_SERVICE_ROLE_KEY       = your_service_role_key
 NEXT_PUBLIC_REDIRECT_URI        = https://your-app.vercel.app/api/callback
 ```
 

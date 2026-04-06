@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { supabaseServer } from '@/lib/supabase-server';
 
 function decodeCredentials(state: string | null): { clientId: string; clientSecret: string } | null {
   if (!state) return null;
@@ -28,6 +28,7 @@ export async function GET(request: Request) {
   const creds = decodeCredentials(stateParam);
   const clientId = creds?.clientId ?? process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
   const clientSecret = creds?.clientSecret ?? process.env.STRAVA_CLIENT_SECRET;
+  const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
   if (!clientId || !clientSecret) {
     return NextResponse.json({ error: 'Strava credentials not found.' }, { status: 400 });
@@ -49,7 +50,11 @@ export async function GET(request: Request) {
     
     if (!tokenResponse.ok) {
       console.error('Strava Token Error:', tokenData);
-      throw new Error(`Strava API Error: ${tokenData.message || 'Token fetch failed'}`);
+      const message =
+        tokenData?.message ||
+        tokenData?.errors?.[0]?.message ||
+        'Token fetch failed';
+      throw new Error(`Strava API Error: ${message}`);
     }
 
     const accessToken = tokenData.access_token;
@@ -57,7 +62,7 @@ export async function GET(request: Request) {
 
     if (!accessToken || !athlete) throw new Error('アクセストークンの取得に失敗しました');
 
-    const { data: userData, error: userError } = await supabase
+    const { data: userData, error: userError } = await supabaseServer
       .from('profiles')
       .upsert({
         strava_id: athlete.id,
@@ -71,6 +76,9 @@ export async function GET(request: Request) {
 
     if (userError) {
       console.error('Supabase Profile Upsert Error:', userError);
+      if (!hasServiceRole && userError.code === '42501') {
+        throw new Error('Supabase write denied. Configure SUPABASE_SERVICE_ROLE_KEY for server-side writes.');
+      }
       throw userError;
     }
 
@@ -88,7 +96,7 @@ export async function GET(request: Request) {
 
       for (const act of activities) {
         if (['Ride', 'MountainBikeRide', 'GravelRide', 'EBikeRide'].includes(act.type)) {
-          const { error: actError } = await supabase.from('activities').upsert({
+          const { error: actError } = await supabaseServer.from('activities').upsert({
             user_id: userData.id,
             strava_activity_id: act.id,
             name: act.name,
@@ -99,7 +107,12 @@ export async function GET(request: Request) {
             start_date: act.start_date
           }, { onConflict: 'strava_activity_id' });
           
-          if (actError) console.error('Supabase Activity Upsert Error:', actError);
+          if (actError) {
+            console.error('Supabase Activity Upsert Error:', actError);
+            if (!hasServiceRole && actError.code === '42501') {
+              throw new Error('Supabase write denied. Configure SUPABASE_SERVICE_ROLE_KEY for server-side writes.');
+            }
+          }
           if (!actError) totalSaved++;
         }
       }
@@ -113,8 +126,9 @@ export async function GET(request: Request) {
       count: totalSaved
     });
 
-  } catch (error: any) {
-    console.error('API Error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('API Error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

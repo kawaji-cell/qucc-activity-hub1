@@ -1,12 +1,81 @@
 'use client';
 
+import type { Session } from '@supabase/supabase-js';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Map, { Source, Layer, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { supabase } from '@/lib/supabase';
 
+type Profile = {
+  id: string;
+  strava_id: number | string | null;
+  display_name: string;
+  status: string;
+  entry_year: number | null;
+  bio: string | null;
+  bike_model: string | null;
+};
+
+type Activity = {
+  user_id: string;
+  strava_activity_id: number | string;
+  name: string;
+  distance: number | null;
+  total_elevation_gain: number | null;
+  polyline: string | null;
+  start_date: string;
+};
+
+type PopupFeatureProps = {
+  user_id: string;
+  userName: string;
+  name: string;
+  distance: number;
+  elevation: number;
+  start_date: string;
+};
+
+type PopupState = {
+  lngLat: { lng: number; lat: number };
+  props: PopupFeatureProps;
+};
+
+type FeatureCollectionData = {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    properties: PopupFeatureProps;
+    geometry: {
+      type: 'LineString';
+      coordinates: [number, number][];
+    };
+  }>;
+};
+
+function createPopupState(
+  lngLat: { lng: number; lat: number },
+  properties: Record<string, unknown> | null | undefined
+): PopupState | null {
+  if (!properties) {
+    return null;
+  }
+
+  return {
+    lngLat,
+    props: {
+      user_id: String(properties.user_id ?? ''),
+      userName: String(properties.userName ?? 'Unknown'),
+      name: String(properties.name ?? 'Ride'),
+      distance: Number(properties.distance ?? 0),
+      elevation: Number(properties.elevation ?? 0),
+      start_date: String(properties.start_date ?? ''),
+    },
+  };
+}
+
 function decodePolyline(str: string) {
-  let index = 0, lat = 0, lng = 0, coordinates = [];
+  let index = 0, lat = 0, lng = 0;
+  const coordinates: [number, number][] = [];
   let shift = 0, result = 0, byte = null;
   while (index < str.length) {
     byte = null; shift = 0; result = 0;
@@ -21,16 +90,16 @@ function decodePolyline(str: string) {
 }
 
 export default function Home() {
-  const [geoData, setGeoData] = useState<any>(null);
-  const [profiles, setProfiles] = useState<any[]>([]);
-  const [allActivities, setAllActivities] = useState<any[]>([]);
+  const [geoData, setGeoData] = useState<FeatureCollectionData | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [allActivities, setAllActivities] = useState<Activity[]>([]);
   const [viewState, setViewState] = useState({ longitude: 130.22, latitude: 33.57, zoom: 11 });
   const [loading, setLoading] = useState(false);
-  const [popupInfo, setPopupInfo] = useState<any>(null);
-  const [hoverInfo, setHoverInfo] = useState<any>(null);
+  const [popupInfo, setPopupInfo] = useState<PopupState | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<PopupState | null>(null);
   const [showJoinModal, setShowJoinModal] = useState(false);
 
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const isAdmin = useMemo(() => session?.user?.email === 'qucc.cycling@gmail.com', [session]);
   const [myStravaId, setMyStravaId] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -43,6 +112,7 @@ export default function Home() {
   const [ownClientId, setOwnClientId] = useState('');
   const [ownClientSecret, setOwnClientSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const callbackHandled = useRef(false);
 
   const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
@@ -61,18 +131,24 @@ export default function Home() {
   const totalDistance = useMemo(() => 
     Object.values(stats).reduce((acc, curr) => acc + curr.distance, 0) / 1000, [stats]);
 
+  const activePopup = popupInfo || hoverInfo;
+
   const loadData = useCallback(async () => {
     const { data: pData } = await supabase.from('profiles').select('*').order('updated_at', { ascending: true });
-    if (pData) setProfiles(pData);
+    const profileRows = (pData ?? []) as Profile[];
+    if (pData) setProfiles(profileRows);
     const { data: aData } = await supabase.from('activities').select('*');
     if (aData && pData) {
-      setAllActivities(aData);
-      const features = aData.filter(act => act.polyline).map(act => {
-        const rider = pData.find(p => p.id === act.user_id);
+      const activityRows = aData as Activity[];
+      setAllActivities(activityRows);
+      const features = activityRows
+        .filter((act): act is Activity & { polyline: string } => Boolean(act.polyline))
+        .map((act) => {
+        const rider = profileRows.find(p => p.id === act.user_id);
         return {
-          type: 'Feature',
-          properties: { user_id: String(act.user_id), userName: rider?.display_name || 'Unknown', name: act.name, distance: act.distance, elevation: act.total_elevation_gain || 0, start_date: act.start_date },
-          geometry: { type: 'LineString', coordinates: decodePolyline(act.polyline) }
+          type: 'Feature' as const,
+          properties: { user_id: String(act.user_id), userName: rider?.display_name || 'Unknown', name: act.name, distance: act.distance || 0, elevation: act.total_elevation_gain || 0, start_date: act.start_date },
+          geometry: { type: 'LineString' as const, coordinates: decodePolyline(act.polyline) }
         };
       });
       setGeoData({ type: 'FeatureCollection', features });
@@ -80,11 +156,16 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    loadData();
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const initialize = async () => {
+      await loadData();
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+    };
+
+    void initialize();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
     const savedId = localStorage.getItem('qucc_strava_id');
-    if (savedId) setMyStravaId(savedId);
+    if (savedId) queueMicrotask(() => setMyStravaId(savedId));
 
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
@@ -92,10 +173,13 @@ export default function Home() {
     if (code && !callbackHandled.current) {
       callbackHandled.current = true;
       window.history.replaceState({}, '', '/');
-      setLoading(true);
+      queueMicrotask(() => {
+        setLoading(true);
+        setAuthError(null);
+      });
       
-      const savedEntryYear = parseInt(localStorage.getItem('qucc_entry_year') || String(entryYear));
-      const savedYears = parseInt(localStorage.getItem('qucc_years') || String(years));
+      const savedEntryYear = parseInt(localStorage.getItem('qucc_entry_year') || String(entryYear), 10);
+      const savedYears = parseInt(localStorage.getItem('qucc_years') || String(years), 10);
       
       const start = new Date(`${savedEntryYear}-04-01T00:00:00Z`).getTime() / 1000;
       const end = new Date(`${savedEntryYear + savedYears}-03-31T23:59:59Z`).getTime() / 1000;
@@ -109,11 +193,32 @@ export default function Home() {
       if (stateParam) callbackParams.set('state', stateParam);
 
       fetch(`/api/strava/callback?${callbackParams.toString()}`)
-        .then(res => res.json())
-        .then(() => {
+        .then(async (response) => {
+          const payload = await response.json();
+
+          if (!response.ok) {
+            throw new Error(payload.error || 'Strava 連携に失敗しました。');
+          }
+
+          return payload;
+        })
+        .then((payload) => {
           localStorage.removeItem('qucc_entry_year');
           localStorage.removeItem('qucc_years');
+
+          if (payload?.strava_id) {
+            const stravaId = String(payload.strava_id);
+            localStorage.setItem('qucc_strava_id', stravaId);
+            setMyStravaId(stravaId);
+          }
+
           loadData();
+        })
+        .catch((error: Error) => {
+          console.error('Strava callback failed:', error);
+          setAuthError(error.message);
+        })
+        .finally(() => {
           setLoading(false);
         });
     }
@@ -125,22 +230,24 @@ export default function Home() {
   const approveMember = async (id: string) => { if (isAdmin) { await supabase.from('profiles').update({ status: 'active' }).eq('id', id); loadData(); } };
   const handleUpdateProfile = async () => { if (targetProfileId) { await supabase.from('profiles').update(editForm).eq('id', targetProfileId); setIsEditModalOpen(false); loadData(); } };
 
-  const lineLayer: any = {
-    id: 'strava-path',
-    type: 'line',
-    paint: {
-      'line-color': '#85023e',
-      'line-width': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 2.5, 0.4] : 0.8,
-      'line-opacity': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 0.8, 0.05] : 0.2
-    }
+  const lineLayer: React.ComponentProps<typeof Layer> = { 
+    id: 'strava-path', 
+    type: 'line', 
+    paint: { 
+      'line-color': '#85023e', 
+      'line-width': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 2.5, 0.4] : 0.8, 
+      'line-opacity': selectedUserId ? ['case', ['==', ['to-string', ['get', 'user_id']], selectedUserId], 0.8, 0.05] : 0.2 
+    } 
   };
 
-  const [origin, setOrigin] = useState('');
-  useEffect(() => { setOrigin(window.location.origin); }, []);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   const stravaAuthUrl = (() => {
     const clientId = ownClientId.trim() || STRAVA_CLIENT_ID;
-    const redirectUri = process.env.NEXT_PUBLIC_APP_URL ?? origin ?? 'https://qucc-activity-hub1.vercel.app';
+    const redirectUri =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      origin ||
+      'https://qucc-activity-hub1.vercel.app';
     const state = ownClientId.trim() && ownClientSecret.trim() ? btoa(`${ownClientId.trim()}:${ownClientSecret.trim()}`) : '';
     const params = new URLSearchParams({
       client_id: clientId ?? '',
@@ -175,19 +282,19 @@ export default function Home() {
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
         <div className="flex-1 relative bg-gray-100 order-1 md:order-2 h-[55vh] md:h-full">
           <Map {...viewState} onMove={evt => setViewState(evt.viewState)} mapStyle="mapbox://styles/mapbox/light-v11" mapboxAccessToken={MAPBOX_TOKEN} interactiveLayerIds={['strava-path']}
-            onMouseMove={e => { const f = e.features && e.features[0]; if (f) setHoverInfo({ lngLat: e.lngLat, props: f.properties }); else setHoverInfo(null); }}
+            onMouseMove={e => { const f = e.features && e.features[0]; if (f) setHoverInfo(createPopupState(e.lngLat, f.properties)); else setHoverInfo(null); }}
             onMouseLeave={() => setHoverInfo(null)}
-            onClick={e => { const f = e.features && e.features[0]; if (f) setPopupInfo({ lngLat: e.lngLat, props: f.properties }); else setPopupInfo(null); }}>
+            onClick={e => { const f = e.features && e.features[0]; if (f) setPopupInfo(createPopupState(e.lngLat, f.properties)); else setPopupInfo(null); }}>
             {geoData && <Source id="strava-data" type="geojson" data={geoData}><Layer {...lineLayer} /></Source>}
-            {(hoverInfo || popupInfo) && (
-              <Popup longitude={(popupInfo || hoverInfo).lngLat.lng} latitude={(popupInfo || hoverInfo).lngLat.lat} anchor="bottom" closeButton={!!popupInfo} onClose={() => setPopupInfo(null)} className="z-40">
+            {activePopup && (
+              <Popup longitude={activePopup.lngLat.lng} latitude={activePopup.lngLat.lat} anchor="bottom" closeButton={!!popupInfo} onClose={() => setPopupInfo(null)} className="z-40">
                 <div className="p-2 text-[9px] font-bold text-gray-800 bg-white/95 rounded shadow-xl min-w-[130px]">
-                  <div className="border-b pb-1 mb-1 text-gray-900 uppercase font-black tracking-tighter">👤 {(popupInfo || hoverInfo).props.userName}</div>
-                  <p className="text-[#85023e] mb-1 leading-tight">{(popupInfo || hoverInfo).props.name}</p>
+                  <div className="border-b pb-1 mb-1 text-gray-900 uppercase font-black tracking-tighter">👤 {activePopup.props.userName}</div>
+                  <p className="text-[#85023e] mb-1 leading-tight">{activePopup.props.name}</p>
                   <div className="flex flex-col gap-0.5 text-gray-500 font-mono text-[8px]">
-                    <p>📅 {new Date((popupInfo || hoverInfo).props.start_date).toLocaleDateString()}</p>
-                    <p>📏 {((popupInfo || hoverInfo).props.distance / 1000).toFixed(1)} km</p>
-                    <p>⛰️ {Math.round((popupInfo || hoverInfo).props.elevation)} m UP</p>
+                    <p>📅 {new Date(activePopup.props.start_date).toLocaleDateString()}</p>
+                    <p>📏 {(activePopup.props.distance / 1000).toFixed(1)} km</p>
+                    <p>⛰️ {Math.round(activePopup.props.elevation)} m UP</p>
                   </div>
                 </div>
               </Popup>
@@ -196,6 +303,11 @@ export default function Home() {
         </div>
 
         <aside className="w-full md:w-72 border-t md:border-t-0 md:border-r overflow-y-auto p-4 flex flex-col gap-6 bg-gray-50 order-2 md:order-1 h-[45vh] md:h-full z-10">
+          {authError && (
+            <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-[11px] font-bold leading-relaxed text-red-600 shadow-sm">
+              {authError}
+            </div>
+          )}
           <div>
             <h2 className="text-[10px] font-black text-gray-400 mb-4 uppercase tracking-[0.2em] border-b pb-1">Members</h2>
             <div className="flex flex-col gap-2">
@@ -214,7 +326,7 @@ export default function Home() {
                         )}
                       </div>
                       <p className={`text-[8px] font-bold mt-1 ${selectedUserId === p.id ? 'text-white/80' : 'text-gray-400'}`}>🚲 {p.bike_model || 'Bicycle'}</p>
-                      {p.bio && <p className={`text-[8px] italic mt-0.5 leading-tight ${selectedUserId === p.id ? 'text-white/70' : 'text-gray-400'}`}>"{p.bio}"</p>}
+                      {p.bio && <p className={`text-[8px] italic mt-0.5 leading-tight ${selectedUserId === p.id ? 'text-white/70' : 'text-gray-400'}`}>&quot;{p.bio}&quot;</p>}
                       <div className="flex gap-2 mt-1 opacity-70 text-[9px] font-bold">
                         <span>📏 {((stats[p.id]?.distance || 0) / 1000).toFixed(1)} km</span>
                         <span>⛰️ {Math.round(stats[p.id]?.elevation || 0).toLocaleString()} m</span>
@@ -272,7 +384,11 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <a href={stravaAuthUrl} onClick={() => { localStorage.setItem('qucc_entry_year', String(entryYear)); localStorage.setItem('qucc_years', String(years)); }} className={`block w-full text-white font-black py-4 rounded-[20px] text-xs uppercase shadow-xl ${(ownClientId.trim() && ownClientSecret.trim()) || STRAVA_CLIENT_ID ? 'bg-[#FC4C02]' : 'bg-gray-300 pointer-events-none'}`}>Connect Strava</a>
+            <a href={stravaAuthUrl} onClick={() => {
+              setAuthError(null);
+              localStorage.setItem('qucc_entry_year', String(entryYear));
+              localStorage.setItem('qucc_years', String(years));
+            }} className={`block w-full text-white font-black py-4 rounded-[20px] text-xs uppercase shadow-xl ${(ownClientId.trim() && ownClientSecret.trim()) || STRAVA_CLIENT_ID ? 'bg-[#FC4C02]' : 'bg-gray-300 pointer-events-none'}`}>Connect Strava</a>
             <button onClick={() => setShowJoinModal(false)} className="mt-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Later</button>
           </div>
         </div>
