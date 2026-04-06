@@ -3,31 +3,17 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-function decodeCredentials(state: string | null): { clientId: string; clientSecret: string } | null {
-  if (!state) return null;
-  try {
-    const decoded = Buffer.from(state, 'base64').toString('utf-8');
-    const [clientId, clientSecret] = decoded.split(':');
-    if (clientId && clientSecret) return { clientId, clientSecret };
-  } catch {
-    // fall through
-  }
-  return null;
-}
-
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const stateParam = searchParams.get('state');
 
   const after = searchParams.get('after') || '1262304000';
   const before = searchParams.get('before') || Math.floor(Date.now() / 1000).toString();
 
   if (!code) return NextResponse.json({ error: 'No code' }, { status: 400 });
 
-  const creds = decodeCredentials(stateParam);
-  const clientId = creds?.clientId ?? process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
-  const clientSecret = creds?.clientSecret ?? process.env.STRAVA_CLIENT_SECRET;
+  const clientId = process.env.NEXT_PUBLIC_STRAVA_CLIENT_ID;
+  const clientSecret = process.env.STRAVA_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
     return NextResponse.json({ error: 'Strava credentials not found.' }, { status: 400 });
@@ -49,7 +35,12 @@ export async function GET(request: Request) {
     
     if (!tokenResponse.ok) {
       console.error('Strava Token Error:', tokenData);
-      throw new Error(`Strava API Error: ${tokenData.message || 'Token fetch failed'}`);
+
+      const message =
+        tokenData?.message ||
+        tokenData?.errors?.[0]?.message ||
+        'Token fetch failed';
+      throw new Error(`Strava API Error: ${message}`);
     }
 
     const accessToken = tokenData.access_token;
@@ -113,8 +104,9 @@ export async function GET(request: Request) {
       count: totalSaved
     });
 
-  } catch (error: any) {
-    console.error('API Error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('API Error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
