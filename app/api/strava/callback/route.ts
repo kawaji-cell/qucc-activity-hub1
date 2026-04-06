@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseServerClient } from '@/lib/supabase-server';
 
 function decodeCredentials(state: string | null): { clientId: string; clientSecret: string } | null {
   if (!state) return null;
@@ -13,6 +13,39 @@ function decodeCredentials(state: string | null): { clientId: string; clientSecr
     // fall through
   }
   return null;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeError = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+    const parts = [
+      typeof maybeError.message === 'string' ? maybeError.message : null,
+      typeof maybeError.details === 'string' && maybeError.details ? maybeError.details : null,
+      typeof maybeError.hint === 'string' && maybeError.hint
+        ? `Hint: ${maybeError.hint}`
+        : null,
+      typeof maybeError.code === 'string' && maybeError.code ? `Code: ${maybeError.code}` : null,
+    ].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join(' ');
+    }
+  }
+
+  return 'Unknown error';
 }
 
 export async function GET(request: Request) {
@@ -34,6 +67,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    const supabaseServer = getSupabaseServerClient();
     const tokenResponse = await fetch('https://www.strava.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -49,7 +83,11 @@ export async function GET(request: Request) {
     
     if (!tokenResponse.ok) {
       console.error('Strava Token Error:', tokenData);
-      throw new Error(`Strava API Error: ${tokenData.message || 'Token fetch failed'}`);
+      const message =
+        tokenData?.message ||
+        tokenData?.errors?.[0]?.message ||
+        'Token fetch failed';
+      throw new Error(`Strava API Error: ${message}`);
     }
 
     const accessToken = tokenData.access_token;
@@ -57,12 +95,14 @@ export async function GET(request: Request) {
 
     if (!accessToken || !athlete) throw new Error('アクセストークンの取得に失敗しました');
 
-    const { data: userData, error: userError } = await supabase
+    const { data: userData, error: userError } = await supabaseServer
       .from('profiles')
       .upsert({
         strava_id: athlete.id,
         display_name: `${athlete.firstname} ${athlete.lastname}`,
-        entry_year: searchParams.get('entry_year') ? parseInt(searchParams.get('entry_year')!) : null,
+        entry_year: searchParams.get('entry_year')
+          ? parseInt(searchParams.get('entry_year')!, 10)
+          : null,
         status: 'pending',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'strava_id' })
@@ -71,7 +111,7 @@ export async function GET(request: Request) {
 
     if (userError) {
       console.error('Supabase Profile Upsert Error:', userError);
-      throw userError;
+      throw new Error(`Supabase profile upsert failed: ${getErrorMessage(userError)}`);
     }
 
     let page = 1;
@@ -88,7 +128,7 @@ export async function GET(request: Request) {
 
       for (const act of activities) {
         if (['Ride', 'MountainBikeRide', 'GravelRide', 'EBikeRide'].includes(act.type)) {
-          const { error: actError } = await supabase.from('activities').upsert({
+          const { error: actError } = await supabaseServer.from('activities').upsert({
             user_id: userData.id,
             strava_activity_id: act.id,
             name: act.name,
@@ -99,7 +139,10 @@ export async function GET(request: Request) {
             start_date: act.start_date
           }, { onConflict: 'strava_activity_id' });
           
-          if (actError) console.error('Supabase Activity Upsert Error:', actError);
+          if (actError) {
+            console.error('Supabase Activity Upsert Error:', actError);
+            throw new Error(`Supabase activity upsert failed: ${getErrorMessage(actError)}`);
+          }
           if (!actError) totalSaved++;
         }
       }
@@ -113,8 +156,8 @@ export async function GET(request: Request) {
       count: totalSaved
     });
 
-  } catch (error: any) {
-    console.error('API Error:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('API Error:', error);
+    return NextResponse.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
